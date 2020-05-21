@@ -1,0 +1,15 @@
+[package]
+name        = "fuse-rs"
+version     = "0.0.0"
+authors     = ["Carlos Galdino <carloshsgaldino@gmail.com>"]
+edition     = "2018"
+license     = "Apache-2.0"
+repository  = "https://github.com/carlosgaldino/fuse-rs"
+categories  = ["api-bindings", "filesystem"]
+keywords    = ["fuse", "filesystem", "bindings", "ffi"]
+description = "WIP"
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
