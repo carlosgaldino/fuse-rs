@@ -37,23 +37,28 @@ jobs:
     - name: Build
       uses: actions-rs/cargo@v1
       with:
-        command: build --verbose
+        command: build
+        args: --verbose
     - name: Build examples
       uses: actions-rs/cargo@v1
       with:
-        command: build --examples --verbose
+        command: build
+        args: --verbose --examples
     - name: Check
       uses: actions-rs/cargo@v1
       with:
-        command: check --verbose
+        command: check
+        args: --verbose
     - name: Test
       uses: actions-rs/cargo@v1
       with:
-        command: test --verbose
+        command: test
+        args: --verbose
     - name: Docs
       uses: actions-rs/cargo@v1
       with:
-        command: doc --verbose
+        command: doc
+        args: --verbose
 
   rustfmt:
     name: Check code format
@@ -62,10 +67,12 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v2
+    - name: Install libfuse
+      run: sudo apt-get install libfuse-dev
     - name: fmt
       uses: actions-rs/cargo@v1
       with:
-        command: fmt --verbose -- --check
+        command: fmt
         args: --verbose -- --check
     - name: clippy
       uses: actions-rs/cargo@v1
