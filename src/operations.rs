@@ -106,6 +106,43 @@ unsafe extern "C" fn unlink(p: *const c_char) -> c_int {
     }
 }
 
+unsafe extern "C" fn rmdir(p: *const c_char) -> c_int {
+    match build_path(p) {
+        Ok(path) => unit_op!(get_mut_fs().remove_dir(path)),
+        Err(err) => err,
+    }
+}
+
+unsafe extern "C" fn symlink(src: *const c_char, dst: *const c_char) -> c_int {
+    match build_path(src) {
+        Ok(src) => match build_path(dst) {
+            Ok(dst) => unit_op!(get_mut_fs().symlink(src, dst)),
+            Err(err) => err,
+        },
+        Err(err) => err,
+    }
+}
+
+unsafe extern "C" fn rename(from: *const c_char, to: *const c_char) -> c_int {
+    match build_path(from) {
+        Ok(from) => match build_path(to) {
+            Ok(to) => unit_op!(get_mut_fs().rename(from, to)),
+            Err(err) => err,
+        },
+        Err(err) => err,
+    }
+}
+
+unsafe extern "C" fn link(src: *const c_char, dst: *const c_char) -> c_int {
+    match build_path(src) {
+        Ok(src) => match build_path(dst) {
+            Ok(dst) => unit_op!(get_mut_fs().hard_link(src, dst)),
+            Err(err) => err,
+        },
+        Err(err) => err,
+    }
+}
+
 unsafe fn build_path<'a>(p: *const c_char) -> Result<&'a Path, c_int> {
     CStr::from_ptr(p)
         .to_str()
@@ -119,6 +156,10 @@ fn build_operations() -> ffi::fuse::fuse_operations {
         readlink: Some(readlink),
         mkdir: Some(mkdir),
         unlink: Some(unlink),
+        rmdir: Some(rmdir),
+        symlink: Some(symlink),
+        rename: Some(rename),
+        link: Some(link),
         ..Default::default()
     }
 }
