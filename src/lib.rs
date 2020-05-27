@@ -8,7 +8,9 @@ use nix::errno::Errno;
 mod macros;
 
 pub mod filesystem;
+mod operations;
 
 pub use crate::filesystem::Filesystem;
+pub use crate::operations::{mount, Error};
 
 pub type Result<T> = std::result::Result<T, Errno>;
