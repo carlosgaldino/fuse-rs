@@ -1,0 +1,74 @@
+name: Rust
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.toolchain}} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macOS-latest]
+        toolchain: [stable, beta, nightly]
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+    - name: Install osxfuse
+      if: matrix.os == 'macOS-latest'
+      run: brew cask install osxfuse
+    - name: Install libfuse
+      if: matrix.os == 'ubuntu-latest'
+      run: sudo apt-get install libfuse-dev
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: ${{ matrix.toolchain }}
+        override: true
+        components: rustfmt, clippy
+    - name: Build
+      uses: actions-rs/cargo@v1
+      with:
+        command: build --verbose
+    - name: Build examples
+      uses: actions-rs/cargo@v1
+      with:
+        command: build --examples --verbose
+    - name: Check
+      uses: actions-rs/cargo@v1
+      with:
+        command: check --verbose
+    - name: Test
+      uses: actions-rs/cargo@v1
+      with:
+        command: test --verbose
+    - name: Docs
+      uses: actions-rs/cargo@v1
+      with:
+        command: doc --verbose
+
+  rustfmt:
+    name: Check code format
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+    - name: fmt
+      uses: actions-rs/cargo@v1
+      with:
+        command: fmt --verbose -- --check
+        args: --verbose -- --check
+    - name: clippy
+      uses: actions-rs/cargo@v1
+      with:
+        command: clippy
+        args: --verbose -- -D warnings
