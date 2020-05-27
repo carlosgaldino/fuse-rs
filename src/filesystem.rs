@@ -1,7 +1,7 @@
 use libfuse_sys as ffi;
 
 use ffi::fuse;
-use libc::{c_int, flock, stat};
+use libc::{c_int, flock};
 use nix::{
     errno::Errno::ENOSYS,
     fcntl::{FcntlArg, OFlag},
@@ -23,8 +23,11 @@ libc_bitflags! {
         XATTR_REPLACE;
         #[cfg(target_os = "macos")]
         XATTR_NOFOLLOW;
+        #[cfg(target_os = "macos")]
         XATTR_NODEFAULT;
+        #[cfg(target_os = "macos")]
         XATTR_NOSECURITY;
+        #[cfg(target_os = "macos")]
         XATTR_SHOWCOMPRESSION;
     }
 }
@@ -71,9 +74,13 @@ bitflags! {
 
         #[cfg(target_os = "macos")]
         const FUSE_CAP_ALLOCATE         = fuse::FUSE_CAP_ALLOCATE;
+        #[cfg(target_os = "macos")]
         const FUSE_CAP_EXCHANGE_DATA    = fuse::FUSE_CAP_EXCHANGE_DATA;
+        #[cfg(target_os = "macos")]
         const FUSE_CAP_CASE_INSENSITIVE = fuse::FUSE_CAP_CASE_INSENSITIVE;
+        #[cfg(target_os = "macos")]
         const FUSE_CAP_VOL_RENAME       = fuse::FUSE_CAP_VOL_RENAME;
+        #[cfg(target_os = "macos")]
         const FUSE_CAP_XTIMES           = fuse::FUSE_CAP_XTIMES;
     }
 }
@@ -85,7 +92,7 @@ impl FileStat {
         Default::default()
     }
 
-    pub(crate) fn fill(&self, cstat: *mut stat) -> c_int {
+    pub(crate) fn fill(&self, cstat: *mut libc::stat) -> c_int {
         assert!(!cstat.is_null());
         unsafe {
             (*cstat).st_dev = self.st_dev;
@@ -101,15 +108,19 @@ impl FileStat {
             (*cstat).st_mtime_nsec = self.st_mtime_nsec;
             (*cstat).st_ctime = self.st_ctime;
             (*cstat).st_ctime_nsec = self.st_ctime_nsec;
-            (*cstat).st_birthtime = self.st_birthtime;
-            (*cstat).st_birthtime_nsec = self.st_birthtime_nsec;
             (*cstat).st_size = self.st_size;
             (*cstat).st_blocks = self.st_blocks;
             (*cstat).st_blksize = self.st_blksize;
-            (*cstat).st_flags = self.st_flags;
-            (*cstat).st_gen = self.st_gen;
-            (*cstat).st_lspare = self.st_lspare;
-            (*cstat).st_qspare = self.st_qspare;
+            cfg_if::cfg_if! {
+                if #[cfg(target_os = "macos")]  {
+                    (*cstat).st_birthtime = self.st_birthtime;
+                    (*cstat).st_birthtime_nsec = self.st_birthtime_nsec;
+                    (*cstat).st_flags = self.st_flags;
+                    (*cstat).st_gen = self.st_gen;
+                    (*cstat).st_lspare = self.st_lspare;
+                    (*cstat).st_qspare = self.st_qspare;
+                }
+            }
         }
         0
     }
@@ -131,30 +142,7 @@ impl DerefMut for FileStat {
 
 impl Default for FileStat {
     fn default() -> Self {
-        FileStat(libc::stat {
-            st_dev: 0 as _,
-            st_mode: 0 as _,
-            st_nlink: 0 as _,
-            st_ino: 0 as _,
-            st_uid: 0 as _,
-            st_gid: 0 as _,
-            st_rdev: 0 as _,
-            st_atime: 0 as _,
-            st_atime_nsec: 0 as _,
-            st_mtime: 0 as _,
-            st_mtime_nsec: 0 as _,
-            st_ctime: 0 as _,
-            st_ctime_nsec: 0 as _,
-            st_birthtime: 0 as _,
-            st_birthtime_nsec: 0 as _,
-            st_size: 0 as _,
-            st_blocks: 0 as _,
-            st_blksize: 0 as _,
-            st_flags: 0 as _,
-            st_gen: 0 as _,
-            st_lspare: 0 as _,
-            st_qspare: [0; 2],
-        })
+        unsafe { std::mem::zeroed() }
     }
 }
 

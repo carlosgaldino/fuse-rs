@@ -1,4 +1,4 @@
-name: Rust
+name: CI
 
 on:
   push:
@@ -13,10 +13,16 @@ jobs:
   build:
     name: Build ${{ matrix.toolchain}} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macOS-latest]
+        os: [ubuntu-latest]
         toolchain: [stable, beta, nightly]
+        experimental: [false]
+        # include:
+        #   - os: macOS-latest
+        #     toolchain: stable
+        #     experimental: true
 
     steps:
     - name: Checkout
@@ -60,7 +66,7 @@ jobs:
         command: doc
         args: --verbose
 
-  rustfmt:
+  fmt:
     name: Check code format
     runs-on: ubuntu-latest
 
