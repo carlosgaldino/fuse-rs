@@ -9,7 +9,7 @@ use nix::{
     unistd::{AccessFlags, Gid, Uid},
 };
 use std::{
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     ops::{Deref, DerefMut},
     path::Path,
 };
@@ -357,7 +357,7 @@ pub trait Filesystem: Sync {
     }
 
     // Read the target of a symbolic link.
-    fn read_link(&self, _path: &Path) -> Result<&Path> {
+    fn read_link(&self, _path: &Path) -> Result<&OsStr> {
         Err(ENOSYS)
     }
 

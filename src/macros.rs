@@ -20,3 +20,12 @@ macro_rules! libc_bitflags {
         }
     };
 }
+
+macro_rules! unit_op {
+    ($fn:expr) => {{
+        match $fn {
+            Ok(_) => 0,
+            Err(err) => negate_errno(err),
+        }
+    }};
+}
