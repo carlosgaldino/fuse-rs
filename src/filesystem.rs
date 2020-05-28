@@ -10,6 +10,7 @@ use nix::{
 };
 use std::{
     ffi::{OsStr, OsString},
+    mem,
     ops::{Deref, DerefMut},
     path::Path,
 };
@@ -85,11 +86,12 @@ bitflags! {
     }
 }
 
+#[derive(Debug)]
 pub struct FileStat(libc::stat);
 
 impl FileStat {
     pub fn new() -> Self {
-        Default::default()
+        unsafe { mem::zeroed() }
     }
 
     pub(crate) fn fill(&self, cstat: *mut libc::stat) -> c_int {
@@ -124,6 +126,10 @@ impl FileStat {
         }
         0
     }
+
+    pub(crate) fn as_raw(&mut self) -> *mut libc::stat {
+        &mut self.0
+    }
 }
 
 impl Deref for FileStat {
@@ -146,12 +152,14 @@ impl Default for FileStat {
     }
 }
 
+#[derive(Debug)]
 pub struct DirEntry {
     pub name: OsString,
     pub metadata: Option<FileStat>,
     pub offset: Option<u64>,
 }
 
+#[derive(Debug)]
 pub struct ConnectionInfo {
     // Major version of the protocol.
     proto_major: u32,
@@ -175,6 +183,21 @@ pub struct ConnectionInfo {
 }
 
 impl ConnectionInfo {
+    pub(crate) fn from_raw(c: *mut fuse::fuse_conn_info) -> Self {
+        unsafe {
+            Self {
+                proto_minor: (*c).proto_minor,
+                proto_major: (*c).proto_major,
+                async_read: (*c).async_read == 1,
+                max_write: (*c).max_write,
+                max_readahead: (*c).max_readahead,
+                max_background: (*c).max_background,
+                kernel_capability_flags: CapabilityFlags::from_bits_unchecked((*c).capable),
+                fs_capability_flags: CapabilityFlags::from_bits_unchecked((*c).want),
+                congestion_threshold: (*c).congestion_threshold,
+            }
+        }
+    }
     pub fn proto_major(&self) -> u32 {
         self.proto_major
     }
@@ -218,6 +241,7 @@ impl ConnectionInfo {
     }
 }
 
+#[derive(Default, Debug)]
 pub struct FileInfo {
     // Open flags. Available in `open` and `release`.
     flags: Option<OFlag>,
@@ -253,14 +277,56 @@ pub struct FileInfo {
 }
 
 impl FileInfo {
+    pub(crate) fn from_raw(fi: *mut fuse::fuse_file_info) -> Self {
+        assert!(!fi.is_null());
+        unsafe {
+            Self {
+                flags: OFlag::from_bits((*fi).flags),
+                writepage: (*fi).writepage == 1,
+                handle: Some((*fi).fh),
+                lock_owner_id: Some((*fi).lock_owner),
+                direct_io: (*fi).direct_io() == 1,
+                keep_cache: (*fi).keep_cache() == 1,
+                flush: (*fi).flush() == 1,
+                non_seekable: (*fi).nonseekable() == 1,
+                release_flock: (*fi).flock_release() == 1,
+            }
+        }
+    }
+
     pub fn get_handle(&self) -> Option<u64> {
         self.handle
     }
+
+    pub(crate) fn fill(&self, fi: *mut fuse::fuse_file_info) -> libc::c_int {
+        assert!(!fi.is_null());
+        unsafe {
+            (*fi).flags = self.flags.map_or((*fi).flags, |o| o.bits());
+            (*fi).writepage = self.writepage as libc::c_int;
+            (*fi).fh = self.handle.unwrap_or((*fi).fh);
+            (*fi).lock_owner = self.lock_owner_id.unwrap_or((*fi).lock_owner);
+            (*fi).set_direct_io(self.direct_io as libc::c_uint);
+            (*fi).set_keep_cache(self.keep_cache as libc::c_uint);
+            (*fi).set_flush(self.flush as libc::c_uint);
+            (*fi).set_nonseekable(self.non_seekable as libc::c_uint);
+            (*fi).set_flock_release(self.release_flock as libc::c_uint);
+        }
+        0
+    }
 }
 
+#[derive(Default, Debug)]
 pub struct OpenFileInfo(FileInfo);
 
 impl OpenFileInfo {
+    pub(crate) fn from_file_info(fi: FileInfo) -> Self {
+        Self(fi)
+    }
+
+    pub(crate) fn file_info(&self) -> &FileInfo {
+        &self.0
+    }
+
     pub fn get_flags(&self) -> Option<OFlag> {
         self.0.flags
     }
@@ -286,9 +352,18 @@ impl OpenFileInfo {
     }
 }
 
+#[derive(Debug)]
 pub struct WriteFileInfo(FileInfo);
 
 impl WriteFileInfo {
+    pub(crate) fn from_file_info(fi: FileInfo) -> Self {
+        Self(fi)
+    }
+
+    pub(crate) fn file_info(&self) -> &FileInfo {
+        &self.0
+    }
+
     pub fn set_writepage(&mut self, writepage: bool) -> &mut Self {
         self.0.writepage = writepage;
         self
@@ -299,9 +374,18 @@ impl WriteFileInfo {
     }
 }
 
+#[derive(Debug)]
 pub struct FlushFileInfo(FileInfo);
 
 impl FlushFileInfo {
+    pub(crate) fn from_file_info(fi: FileInfo) -> Self {
+        Self(fi)
+    }
+
+    pub(crate) fn file_info(&self) -> &FileInfo {
+        &self.0
+    }
+
     pub fn get_handle(&self) -> Option<u64> {
         self.0.get_handle()
     }
@@ -316,6 +400,7 @@ impl FlushFileInfo {
     }
 }
 
+#[derive(Debug)]
 pub struct LockFileInfo(FileInfo);
 
 impl LockFileInfo {
@@ -333,9 +418,18 @@ impl LockFileInfo {
     }
 }
 
+#[derive(Debug)]
 pub struct ReleaseFileInfo(FileInfo);
 
 impl ReleaseFileInfo {
+    pub(crate) fn from_file_info(fi: FileInfo) -> Self {
+        Self(fi)
+    }
+
+    pub(crate) fn file_info(&self) -> &FileInfo {
+        &self.0
+    }
+
     pub fn get_handle(&self) -> Option<u64> {
         self.0.get_handle()
     }
@@ -350,7 +444,7 @@ impl ReleaseFileInfo {
     }
 }
 
-pub trait Filesystem: Sync {
+pub trait Filesystem {
     // Get file attributes of given path.
     fn metadata(&self, _path: &Path) -> Result<FileStat> {
         Err(ENOSYS)
@@ -397,7 +491,7 @@ pub trait Filesystem: Sync {
     }
 
     // Change the ownership of a file.
-    fn set_owner(&mut self, _path: &Path, _uid: Option<Uid>, _gid: Option<Gid>) -> Result<()> {
+    fn set_owner(&mut self, _path: &Path, _uid: Uid, _gid: Gid) -> Result<()> {
         Err(ENOSYS)
     }
 
@@ -416,7 +510,7 @@ pub trait Filesystem: Sync {
     fn read(
         &mut self,
         _path: &Path,
-        _buf: &mut [u8],
+        _buf: &mut Vec<u8>,
         _offset: u64,
         _file_info: FileInfo,
     ) -> Result<usize> {
@@ -428,6 +522,7 @@ pub trait Filesystem: Sync {
         &mut self,
         _path: &Path,
         _buf: &[u8],
+        _len: usize,
         _offset: u64,
         _file_info: &mut WriteFileInfo,
     ) -> Result<usize> {
@@ -435,7 +530,7 @@ pub trait Filesystem: Sync {
     }
 
     // Get filesystem statistics.
-    fn statfs(&self) -> Result<Statvfs> {
+    fn statfs(&self, _path: &Path) -> Result<Statvfs> {
         Err(ENOSYS)
     }
 
@@ -445,7 +540,7 @@ pub trait Filesystem: Sync {
     }
 
     // Release an open file.
-    fn release(&mut self, _path: &Path, _file_info: ReleaseFileInfo) -> Result<()> {
+    fn release(&mut self, _path: &Path, _file_info: &mut ReleaseFileInfo) -> Result<()> {
         Err(ENOSYS)
     }
 
@@ -521,7 +616,7 @@ pub trait Filesystem: Sync {
     }
 
     // Open directory.
-    fn open_dir(&mut self, _path: &Path, _file_info: OpenFileInfo) -> Result<()> {
+    fn open_dir(&mut self, _path: &Path, _file_info: &mut OpenFileInfo) -> Result<()> {
         Err(ENOSYS)
     }
 
