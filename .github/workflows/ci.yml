@@ -13,16 +13,10 @@ jobs:
   build:
     name: Build ${{ matrix.toolchain}} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.experimental }}
     strategy:
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-latest, macOS-latest]
         toolchain: [stable, beta, nightly]
-        experimental: [false]
-        # include:
-        #   - os: macOS-latest
-        #     toolchain: stable
-        #     experimental: true
 
     steps:
     - name: Checkout
@@ -30,6 +24,9 @@ jobs:
     - name: Install osxfuse
       if: matrix.os == 'macOS-latest'
       run: brew cask install osxfuse
+    - name: Install pkg-config
+      if: matrix.os == 'macOS-latest'
+      run: brew install pkg-config
     - name: Install libfuse
       if: matrix.os == 'ubuntu-latest'
       run: sudo apt-get install libfuse-dev
