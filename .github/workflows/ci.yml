@@ -41,22 +41,22 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: build
-        args: --verbose
+        args: --verbose --all-features
     - name: Build examples
       uses: actions-rs/cargo@v1
       with:
         command: build
-        args: --verbose --examples
+        args: --verbose --examples --all-features
     - name: Check
       uses: actions-rs/cargo@v1
       with:
         command: check
-        args: --verbose
+        args: --verbose --all-features
     - name: Test
       uses: actions-rs/cargo@v1
       with:
         command: test
-        args: --verbose
+        args: --verbose --all-features
     - name: Docs
       uses: actions-rs/cargo@v1
       with:
@@ -81,4 +81,4 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: clippy
-        args: --verbose -- -D warnings
+        args: --verbose --all-features -- -D warnings

@@ -438,33 +438,61 @@ unsafe fn build_path<'a>(p: *const c_char) -> Result<&'a Path, c_int> {
 
 fn build_operations() -> fuse::fuse_operations {
     fuse::fuse_operations {
+        #[cfg(any(feature = "full", feature = "getattr"))]
         getattr: Some(getattr),
+        #[cfg(any(feature = "full", feature = "readlink"))]
         readlink: Some(readlink),
+        #[cfg(any(feature = "full", feature = "mkdir"))]
         mkdir: Some(mkdir),
+        #[cfg(any(feature = "full", feature = "unlink"))]
         unlink: Some(unlink),
+        #[cfg(any(feature = "full", feature = "rmdir"))]
         rmdir: Some(rmdir),
+        #[cfg(any(feature = "full", feature = "symlink"))]
         symlink: Some(symlink),
+        #[cfg(any(feature = "full", feature = "rename"))]
         rename: Some(rename),
+        #[cfg(any(feature = "full", feature = "link"))]
         link: Some(link),
+        #[cfg(any(feature = "full", feature = "chmod"))]
         chmod: Some(chmod),
+        #[cfg(any(feature = "full", feature = "chown"))]
         chown: Some(chown),
+        #[cfg(any(feature = "full", feature = "truncate"))]
         truncate: Some(truncate),
+        #[cfg(any(feature = "full", feature = "open"))]
         open: Some(open),
+        #[cfg(any(feature = "full", feature = "read"))]
         read: Some(read),
+        #[cfg(any(feature = "full", feature = "write"))]
         write: Some(write),
+        #[cfg(any(feature = "full", feature = "statfs"))]
         statfs: Some(statfs), // not fine
+        #[cfg(any(feature = "full", feature = "flush"))]
         flush: Some(flush),
+        #[cfg(any(feature = "full", feature = "release"))]
         release: Some(release),
+        #[cfg(any(feature = "full", feature = "fsync"))]
         fsync: Some(fsync),
+        #[cfg(any(feature = "full", feature = "opendir"))]
         opendir: Some(opendir), // not fine
+        #[cfg(any(feature = "full", feature = "readdir"))]
         readdir: Some(readdir),
+        #[cfg(any(feature = "full", feature = "fsyncdir"))]
         fsyncdir: Some(fsyncdir),
+        #[cfg(any(feature = "full", feature = "releasedir"))]
         releasedir: Some(releasedir),
+        #[cfg(any(feature = "full", feature = "init"))]
         init: Some(init),
+        #[cfg(any(feature = "full", feature = "destroy"))]
         destroy: Some(destroy),
+        #[cfg(any(feature = "full", feature = "access"))]
         access: Some(access),
+        #[cfg(any(feature = "full", feature = "create"))]
         create: Some(create), // ok
+        #[cfg(any(feature = "full", feature = "ftruncate"))]
         ftruncate: Some(ftruncate),
+        #[cfg(any(feature = "full", feature = "fgetattr"))]
         fgetattr: Some(fgetattr),
         // TODO: lock, utimens, bmap, ext_metadata
         ..Default::default()

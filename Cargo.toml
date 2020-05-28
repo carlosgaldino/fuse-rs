@@ -10,13 +10,76 @@ keywords    = ["fuse", "filesystem", "bindings", "ffi"]
 description = "WIP"
 
 [dependencies]
-libc      = "0.2.70"
-once_cell = "1.4.0"
-nix       = "0.17.0"
-bitflags  = "1.0"
-cfg-if    = "0.1"
+libfuse-sys = { version = "0.3.0", default-features = false, features = ["fuse_35", "fuse_highlevel"] }
+libc        = "0.2.70"
+once_cell   = "1.4.0"
+nix         = "0.17.0"
+bitflags    = "1.0"
+cfg-if      = "0.1"
 
-[dependencies.libfuse-sys]
-version          = "0.3.0"
-default-features = false
-features         = ["fuse_35", "fuse_highlevel"]
+[features]
+default = ["open", "getattr", "readdir", "read"]
+
+getattr    = []
+readlink   = []
+mkdir      = []
+unlink     = []
+rmdir      = []
+symlink    = []
+rename     = []
+link       = []
+chmod      = []
+chown      = []
+truncate   = []
+open       = []
+read       = []
+write      = []
+statfs     = []
+flush      = []
+release    = []
+fsync      = []
+opendir    = []
+readdir    = []
+fsyncdir   = []
+releasedir = []
+init       = []
+destroy    = []
+access     = []
+create     = []
+ftruncate  = []
+fgetattr   = []
+
+full = [
+  "getattr",
+  "readlink",
+  "mkdir",
+  "unlink",
+  "rmdir",
+  "symlink",
+  "rename",
+  "link",
+  "chmod",
+  "chown",
+  "truncate",
+  "open",
+  "read",
+  "write",
+  "statfs",
+  "flush",
+  "release",
+  "fsync",
+  "opendir",
+  "readdir",
+  "fsyncdir",
+  "releasedir",
+  "init",
+  "destroy",
+  "access",
+  "create",
+  "ftruncate",
+  "fgetattr",
+]
+
+[[example]]
+name = "hellofs"
+required-features = ["open", "getattr", "readdir", "read"]
