@@ -83,11 +83,16 @@ unsafe extern "C" fn getattr(p: *const c_char, stat: *mut stat) -> c_int {
 }
 
 unsafe extern "C" fn readlink(p: *const c_char, buffer: *mut c_char, len: usize) -> c_int {
+    if buffer.is_null() {
+        return negate_errno(EINVAL);
+    }
+
     match build_path(p) {
         Ok(path) => match get_fs().read_link(path) {
             Ok(path) => {
+                let cstr = CString::new(&path.as_bytes()[..len - 1]).unwrap();
                 std::ptr::copy_nonoverlapping(
-                    CStr::from_bytes_with_nul_unchecked(path.as_bytes()).as_ptr(),
+                    cstr.into_bytes_with_nul().as_ptr() as *const _,
                     buffer,
                     len,
                 );
@@ -553,8 +558,11 @@ mod tests {
     use super::*;
     use crate::{filesystem::FileStat, Result};
     use nix::errno::Errno::EFAULT;
+    use std::{ffi::OsStr, mem};
 
     static mut DUMMY_FS: DummyFS = DummyFS {};
+    const FOO_PATH: &str = "/path/to/foo.txt";
+    const BAR_PATH: &str = "/path/to/bar.xyz";
 
     #[test]
     fn test_build_path() {
@@ -563,24 +571,21 @@ mod tests {
             Some(negate_errno(EINVAL))
         );
 
-        let p = CString::new("path/to/foo").unwrap();
+        let p = CString::new(FOO_PATH).unwrap();
         let ptr = p.as_ptr();
-        assert_eq!(
-            unsafe { build_path(ptr) }.ok(),
-            Some(Path::new("path/to/foo"))
-        );
+        assert_eq!(unsafe { build_path(ptr) }.ok(), Some(Path::new(FOO_PATH)));
     }
 
     #[test]
-    fn test_getattr() -> std::result::Result<(), Error> {
-        unsafe { setup_fs(&mut DUMMY_FS)? };
+    fn test_getattr() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
 
-        let p = CString::new("path/to/foo.txt").unwrap();
+        let p = CString::new(FOO_PATH).unwrap();
         let ptr = p.as_ptr();
         let stat = std::ptr::null_mut();
         assert_eq!(unsafe { getattr(ptr, stat) }, negate_errno(EINVAL));
 
-        let p = CString::new("path/to/bar.txt").unwrap();
+        let p = CString::new(BAR_PATH).unwrap();
         let ptr = p.as_ptr();
         let mut stat = std::mem::MaybeUninit::uninit();
         assert_eq!(
@@ -588,7 +593,7 @@ mod tests {
             negate_errno(EFAULT)
         );
 
-        let p = CString::new("path/to/foo.txt").unwrap();
+        let p = CString::new(FOO_PATH).unwrap();
         let ptr = p.as_ptr();
         let mut stat = std::mem::MaybeUninit::uninit();
         unsafe {
@@ -597,8 +602,44 @@ mod tests {
             let stat = stat.assume_init();
             assert_eq!(stat.st_nlink, 3);
         };
+    }
 
-        Ok(())
+    #[test]
+    fn test_readlink() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        let len = 13; // BAR_PATH - extension + nul byte
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(
+            unsafe { readlink(ptr, std::ptr::null_mut(), len) },
+            negate_errno(EINVAL)
+        );
+
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut buf = std::mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe { readlink(ptr, buf.as_mut_ptr(), len) },
+            negate_errno(EFAULT)
+        );
+
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut vec = Vec::with_capacity(len);
+        unsafe {
+            vec.set_len(len);
+            let mut buff = CString::from_vec_unchecked(vec).into_raw();
+            assert_eq!(readlink(ptr, buff, len), 0);
+
+            let got = CString::from_raw(buff);
+            assert_eq!(got.to_bytes_with_nul(), b"/path/to/bar\0");
+        };
+    }
+
+    #[allow(unused_must_use)]
+    unsafe fn setup_test_fs(fs: &'static mut dyn Filesystem) {
+        setup_fs(fs);
     }
 
     struct DummyFS;
@@ -609,6 +650,14 @@ mod tests {
                 let mut fstat = FileStat::new();
                 fstat.st_nlink = 3;
                 Ok(fstat)
+            } else {
+                Err(EFAULT)
+            }
+        }
+
+        fn read_link(&self, path: &Path) -> Result<&OsStr> {
+            if path.ends_with("foo.txt") {
+                Ok(Path::new(BAR_PATH).as_os_str())
             } else {
                 Err(EFAULT)
             }
