@@ -132,6 +132,12 @@ impl FileStat {
     }
 }
 
+impl Default for FileStat {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Deref for FileStat {
     type Target = libc::stat;
 
