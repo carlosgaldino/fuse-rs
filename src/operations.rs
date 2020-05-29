@@ -177,6 +177,10 @@ unsafe extern "C" fn truncate(p: *const c_char, len: off_t) -> c_int {
 }
 
 unsafe extern "C" fn open(p: *const c_char, fi: *mut fuse::fuse_file_info) -> c_int {
+    if fi.is_null() {
+        return negate_errno(EINVAL);
+    }
+
     let mut open_fi = OpenFileInfo::default();
     match build_path(p) {
         Ok(path) => match get_mut_fs().open(path, &mut open_fi) {
@@ -194,16 +198,21 @@ unsafe extern "C" fn read(
     offset: off_t,
     fi: *mut fuse::fuse_file_info,
 ) -> c_int {
+    if buffer.is_null() {
+        return negate_errno(EINVAL);
+    }
+
     let mut buf = Vec::with_capacity(len);
     match build_path(p) {
         Ok(path) => match get_mut_fs().read(path, &mut buf, offset as _, FileInfo::from_raw(fi)) {
             Ok(length) => {
+                let len = len.min(length);
                 std::ptr::copy_nonoverlapping(
                     CString::from_vec_unchecked(buf).as_ptr(),
                     buffer,
-                    length,
+                    len,
                 );
-                length as _
+                len as _
             }
             Err(err) => negate_errno(err),
         },
@@ -558,6 +567,7 @@ mod tests {
     use super::*;
     use crate::{filesystem::FileStat, Result};
     use nix::errno::Errno::ENOENT;
+    use std::io::prelude::Write;
     use std::{ffi::OsStr, mem};
 
     static mut DUMMY_FS: DummyFS = DummyFS {};
@@ -587,7 +597,7 @@ mod tests {
 
         let p = CString::new(BAR_PATH).unwrap();
         let ptr = p.as_ptr();
-        let mut stat = std::mem::MaybeUninit::uninit();
+        let mut stat = mem::MaybeUninit::uninit();
         assert_eq!(
             unsafe { getattr(ptr, stat.as_mut_ptr()) },
             negate_errno(ENOENT)
@@ -595,7 +605,7 @@ mod tests {
 
         let p = CString::new(FOO_PATH).unwrap();
         let ptr = p.as_ptr();
-        let mut stat = std::mem::MaybeUninit::uninit();
+        let mut stat = mem::MaybeUninit::uninit();
         unsafe {
             assert_eq!(getattr(ptr, stat.as_mut_ptr()), 0);
 
@@ -618,7 +628,7 @@ mod tests {
 
         let p = CString::new(BAR_PATH).unwrap();
         let ptr = p.as_ptr();
-        let mut buf = std::mem::MaybeUninit::uninit();
+        let mut buf = mem::MaybeUninit::uninit();
         assert_eq!(
             unsafe { readlink(ptr, buf.as_mut_ptr(), len) },
             negate_errno(ENOENT)
@@ -629,12 +639,231 @@ mod tests {
         let mut vec = Vec::with_capacity(len);
         unsafe {
             vec.set_len(len);
-            let mut buff = CString::from_vec_unchecked(vec).into_raw();
-            assert_eq!(readlink(ptr, buff, len), 0);
+            let buf = CString::from_vec_unchecked(vec).into_raw();
+            assert_eq!(readlink(ptr, buf, len), 0);
 
-            let got = CString::from_raw(buff);
+            let got = CString::from_raw(buf);
             assert_eq!(got.to_bytes_with_nul(), b"/path/to/bar\0");
         };
+    }
+
+    #[test]
+    fn test_mkdir() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mode: libc::mode_t = libc::S_IFDIR | 0o755;
+        assert_eq!(unsafe { mkdir(ptr, mode) }, negate_errno(ENOENT));
+
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(unsafe { mkdir(ptr, mode) }, 0);
+    }
+
+    #[test]
+    fn test_unlink() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(unsafe { unlink(ptr) }, negate_errno(ENOENT));
+
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(unsafe { unlink(ptr) }, 0);
+    }
+
+    #[test]
+    fn test_rmdir() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(unsafe { rmdir(ptr) }, negate_errno(ENOENT));
+
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(unsafe { rmdir(ptr) }, 0);
+    }
+
+    #[test]
+    fn test_symlink() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        let src = CString::new(BAR_PATH).unwrap();
+        let src_ptr = src.as_ptr();
+        let dst = CString::new(FOO_PATH).unwrap();
+        let dst_ptr = dst.as_ptr();
+        assert_eq!(unsafe { symlink(src_ptr, dst_ptr) }, negate_errno(ENOENT));
+
+        let src = CString::new(FOO_PATH).unwrap();
+        let src_ptr = src.as_ptr();
+        assert_eq!(unsafe { symlink(src_ptr, dst_ptr) }, 0);
+    }
+
+    #[test]
+    fn test_rename() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        let from = CString::new(BAR_PATH).unwrap();
+        let from_ptr = from.as_ptr();
+        let to = CString::new(FOO_PATH).unwrap();
+        let to_ptr = to.as_ptr();
+        assert_eq!(unsafe { rename(from_ptr, to_ptr) }, negate_errno(ENOENT));
+
+        let from = CString::new(FOO_PATH).unwrap();
+        let from_ptr = from.as_ptr();
+        assert_eq!(unsafe { rename(from_ptr, to_ptr) }, 0);
+    }
+
+    #[test]
+    fn test_link() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        let src = CString::new(BAR_PATH).unwrap();
+        let src_ptr = src.as_ptr();
+        let dst = CString::new(FOO_PATH).unwrap();
+        let dst_ptr = dst.as_ptr();
+        assert_eq!(unsafe { link(src_ptr, dst_ptr) }, negate_errno(ENOENT));
+
+        let src = CString::new(FOO_PATH).unwrap();
+        let src_ptr = src.as_ptr();
+        assert_eq!(unsafe { link(src_ptr, dst_ptr) }, 0);
+    }
+
+    #[test]
+    fn test_chmod() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mode: libc::mode_t = libc::S_IFDIR | 0o755;
+        assert_eq!(unsafe { chmod(ptr, mode) }, negate_errno(ENOENT));
+
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(unsafe { chmod(ptr, mode) }, 0);
+    }
+
+    #[test]
+    fn test_chown() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        let uid = 123;
+        let gid = 456;
+
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(unsafe { chown(ptr, uid, gid) }, negate_errno(ENOENT));
+
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(unsafe { chown(ptr, uid, gid) }, 0);
+    }
+
+    #[test]
+    fn test_truncate() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let offset = 128;
+        assert_eq!(unsafe { truncate(ptr, offset) }, negate_errno(ENOENT));
+
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(unsafe { truncate(ptr, offset) }, 0);
+    }
+
+    #[test]
+    fn test_open() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(
+            unsafe { open(ptr, std::ptr::null_mut()) },
+            negate_errno(EINVAL)
+        );
+
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        assert_eq!(unsafe { open(ptr, fi.as_mut_ptr()) }, negate_errno(ENOENT));
+
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        unsafe {
+            assert_eq!(open(ptr, fi.as_mut_ptr()), 0);
+
+            let fi = fi.assume_init();
+            assert_eq!(fi.direct_io(), 1);
+        }
+    }
+
+    #[test]
+    fn test_read() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        let len = 8;
+        let offset = 0;
+
+        // Invalid buffer: null
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe { read(ptr, std::ptr::null_mut(), len, offset, fi.as_mut_ptr()) },
+            negate_errno(EINVAL)
+        );
+
+        // Wrong path
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut buf = mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe { read(ptr, buf.as_mut_ptr(), len, offset, fi.as_mut_ptr()) },
+            negate_errno(ENOENT)
+        );
+
+        // Wrong path
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut buf = mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe { read(ptr, buf.as_mut_ptr(), len, offset, fi.as_mut_ptr()) },
+            negate_errno(ENOENT)
+        );
+
+        // Truncate if fs wrote more than specified len in the buffer.
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut vec = Vec::with_capacity(len);
+        unsafe {
+            vec.set_len(len);
+            let buf = CString::from_vec_unchecked(vec).into_raw();
+
+            assert_eq!(read(ptr, buf, len, offset, fi.as_mut_ptr()), len as _);
+
+            let got = CString::from_raw(buf);
+            assert_eq!(got.to_bytes_with_nul(), b"Hello Wo\0");
+        }
+
+        // Returns actual bytes read if fs read less than specified len. EOF case.
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut vec = Vec::with_capacity(len);
+        unsafe {
+            vec.set_len(len);
+            let buf = CString::from_vec_unchecked(vec).into_raw();
+
+            assert_eq!(read(ptr, buf, 2 * len, offset, fi.as_mut_ptr()), 12);
+
+            let got = CString::from_raw(buf);
+            assert_eq!(got.to_bytes_with_nul(), b"Hello World!\0");
+        }
     }
 
     #[allow(unused_must_use)]
@@ -658,6 +887,101 @@ mod tests {
         fn read_link(&self, path: &Path) -> Result<&OsStr> {
             if path.ends_with("foo.txt") {
                 Ok(Path::new(BAR_PATH).as_os_str())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn create_dir(&mut self, path: &Path, _mode: Mode) -> Result<()> {
+            if path.ends_with("foo.txt") {
+                Ok(())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn remove_file(&mut self, path: &Path) -> Result<()> {
+            if path.ends_with("foo.txt") {
+                Ok(())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn remove_dir(&mut self, path: &Path) -> Result<()> {
+            if path.ends_with("foo.txt") {
+                Ok(())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn symlink(&mut self, src: &Path, _dst: &Path) -> Result<()> {
+            if src.ends_with("foo.txt") {
+                Ok(())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn rename(&mut self, from: &Path, _to: &Path) -> Result<()> {
+            if from.ends_with("foo.txt") {
+                Ok(())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn hard_link(&mut self, src: &Path, _dst: &Path) -> Result<()> {
+            if src.ends_with("foo.txt") {
+                Ok(())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn set_permissions(&mut self, path: &Path, _mode: Mode) -> Result<()> {
+            if path.ends_with("foo.txt") {
+                Ok(())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn set_owner(&mut self, path: &Path, _uid: Uid, _gid: Gid) -> Result<()> {
+            if path.ends_with("foo.txt") {
+                Ok(())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn set_len(&mut self, path: &Path, _len: u64) -> Result<()> {
+            if path.ends_with("foo.txt") {
+                Ok(())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn open(&mut self, path: &Path, file_info: &mut OpenFileInfo) -> Result<()> {
+            if path.ends_with("foo.txt") {
+                file_info.set_direct_io(true);
+                Ok(())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn read(
+            &mut self,
+            path: &Path,
+            buf: &mut Vec<u8>,
+            _offset: u64,
+            _file_info: FileInfo,
+        ) -> Result<usize> {
+            if path.ends_with("foo.txt") {
+                buf.write(b"Hello World!").map_err(|_| Errno::EBADEXEC)
             } else {
                 Err(ENOENT)
             }
