@@ -557,7 +557,7 @@ impl DerefMut for FilesystemImpl {
 mod tests {
     use super::*;
     use crate::{filesystem::FileStat, Result};
-    use nix::errno::Errno::EFAULT;
+    use nix::errno::Errno::ENOENT;
     use std::{ffi::OsStr, mem};
 
     static mut DUMMY_FS: DummyFS = DummyFS {};
@@ -590,7 +590,7 @@ mod tests {
         let mut stat = std::mem::MaybeUninit::uninit();
         assert_eq!(
             unsafe { getattr(ptr, stat.as_mut_ptr()) },
-            negate_errno(EFAULT)
+            negate_errno(ENOENT)
         );
 
         let p = CString::new(FOO_PATH).unwrap();
@@ -621,7 +621,7 @@ mod tests {
         let mut buf = std::mem::MaybeUninit::uninit();
         assert_eq!(
             unsafe { readlink(ptr, buf.as_mut_ptr(), len) },
-            negate_errno(EFAULT)
+            negate_errno(ENOENT)
         );
 
         let p = CString::new(FOO_PATH).unwrap();
@@ -651,7 +651,7 @@ mod tests {
                 fstat.st_nlink = 3;
                 Ok(fstat)
             } else {
-                Err(EFAULT)
+                Err(ENOENT)
             }
         }
 
@@ -659,7 +659,7 @@ mod tests {
             if path.ends_with("foo.txt") {
                 Ok(Path::new(BAR_PATH).as_os_str())
             } else {
-                Err(EFAULT)
+                Err(ENOENT)
             }
         }
     }
