@@ -146,12 +146,6 @@ impl DerefMut for FileStat {
     }
 }
 
-impl Default for FileStat {
-    fn default() -> Self {
-        unsafe { std::mem::zeroed() }
-    }
-}
-
 #[derive(Debug)]
 pub struct DirEntry {
     pub name: OsString,
@@ -277,6 +271,10 @@ pub struct FileInfo {
 }
 
 impl FileInfo {
+    pub fn get_handle(&self) -> Option<u64> {
+        self.handle
+    }
+
     pub(crate) fn from_raw(fi: *mut fuse::fuse_file_info) -> Self {
         assert!(!fi.is_null());
         unsafe {
@@ -292,10 +290,6 @@ impl FileInfo {
                 release_flock: (*fi).flock_release() == 1,
             }
         }
-    }
-
-    pub fn get_handle(&self) -> Option<u64> {
-        self.handle
     }
 
     pub(crate) fn fill(&self, fi: *mut fuse::fuse_file_info) -> libc::c_int {

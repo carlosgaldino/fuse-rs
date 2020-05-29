@@ -41,10 +41,7 @@ where
     I: IntoIterator<Item = OsString>,
 {
     unsafe {
-        match FS.set(RwLock::new(FilesystemImpl(filesystem))) {
-            Ok(_) => {}
-            Err(_) => return Err(Error::AlreadyMountedError),
-        };
+        setup_fs(filesystem)?;
 
         let mut argv = vec![
             CString::from_vec_unchecked(name.into_vec()).into_raw(),
@@ -72,6 +69,10 @@ where
 }
 
 unsafe extern "C" fn getattr(p: *const c_char, stat: *mut stat) -> c_int {
+    if stat.is_null() {
+        return negate_errno(EINVAL);
+    }
+
     match build_path(p) {
         Ok(path) => match get_fs().metadata(path) {
             Ok(file_stat) => file_stat.fill(stat),
@@ -430,6 +431,10 @@ fn fill_statvfs(stvfs: Statvfs, stbuf: *mut libc::statvfs) -> c_int {
 }
 
 unsafe fn build_path<'a>(p: *const c_char) -> Result<&'a Path, c_int> {
+    if p.is_null() {
+        return Err(negate_errno(EINVAL));
+    }
+
     CStr::from_ptr(p)
         .to_str()
         .map(|p| Path::new(p))
@@ -508,15 +513,23 @@ fn negate_errno(err: Errno) -> c_int {
     }
 }
 
+unsafe fn setup_fs(fs: &'static mut dyn Filesystem) -> Result<(), Error> {
+    FS.set(RwLock::new(FilesystemImpl(fs)))
+        .map_err(|_| Error::AlreadyMountedError)
+}
+
 unsafe fn get_fs<'a>() -> RwLockReadGuard<'a, FilesystemImpl> {
-    FS.get().expect("fetching fs").read().expect("read fs")
+    FS.get()
+        .expect("fetching FS")
+        .read()
+        .expect("acquiring read lock")
 }
 
 unsafe fn get_mut_fs<'a>() -> &'a mut FilesystemImpl {
     FS.get_mut()
-        .expect("fetching FS")
+        .expect("fetching mut FS")
         .get_mut()
-        .expect("get mut lock")
+        .expect("acquiring mut lock")
 }
 
 struct FilesystemImpl(&'static mut dyn Filesystem);
@@ -532,5 +545,73 @@ impl Deref for FilesystemImpl {
 impl DerefMut for FilesystemImpl {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{filesystem::FileStat, Result};
+    use nix::errno::Errno::EFAULT;
+
+    static mut DUMMY_FS: DummyFS = DummyFS {};
+
+    #[test]
+    fn test_build_path() {
+        assert_eq!(
+            unsafe { build_path(std::ptr::null()) }.err(),
+            Some(negate_errno(EINVAL))
+        );
+
+        let p = CString::new("path/to/foo").unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(
+            unsafe { build_path(ptr) }.ok(),
+            Some(Path::new("path/to/foo"))
+        );
+    }
+
+    #[test]
+    fn test_getattr() -> std::result::Result<(), Error> {
+        unsafe { setup_fs(&mut DUMMY_FS)? };
+
+        let p = CString::new("path/to/foo.txt").unwrap();
+        let ptr = p.as_ptr();
+        let stat = std::ptr::null_mut();
+        assert_eq!(unsafe { getattr(ptr, stat) }, negate_errno(EINVAL));
+
+        let p = CString::new("path/to/bar.txt").unwrap();
+        let ptr = p.as_ptr();
+        let mut stat = std::mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe { getattr(ptr, stat.as_mut_ptr()) },
+            negate_errno(EFAULT)
+        );
+
+        let p = CString::new("path/to/foo.txt").unwrap();
+        let ptr = p.as_ptr();
+        let mut stat = std::mem::MaybeUninit::uninit();
+        unsafe {
+            assert_eq!(getattr(ptr, stat.as_mut_ptr()), 0);
+
+            let stat = stat.assume_init();
+            assert_eq!(stat.st_nlink, 3);
+        };
+
+        Ok(())
+    }
+
+    struct DummyFS;
+
+    impl Filesystem for DummyFS {
+        fn metadata(&self, path: &Path) -> Result<FileStat> {
+            if path.ends_with("foo.txt") {
+                let mut fstat = FileStat::new();
+                fstat.st_nlink = 3;
+                Ok(fstat)
+            } else {
+                Err(EFAULT)
+            }
+        }
     }
 }
