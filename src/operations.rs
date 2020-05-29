@@ -981,7 +981,7 @@ mod tests {
             _file_info: FileInfo,
         ) -> Result<usize> {
             if path.ends_with("foo.txt") {
-                buf.write(b"Hello World!").map_err(|_| Errno::EBADEXEC)
+                buf.write(b"Hello World!").map_err(|_| Errno::EFAULT)
             } else {
                 Err(ENOENT)
             }
