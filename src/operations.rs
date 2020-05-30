@@ -295,6 +295,10 @@ unsafe extern "C" fn fsync(
     data_sync: c_int,
     fi: *mut fuse::fuse_file_info,
 ) -> c_int {
+    if fi.is_null() {
+        return negate_errno(EINVAL);
+    }
+
     match build_path(p) {
         Ok(path) => {
             if data_sync == 1 {
@@ -308,6 +312,10 @@ unsafe extern "C" fn fsync(
 }
 
 unsafe extern "C" fn opendir(p: *const c_char, fi: *mut fuse::fuse_file_info) -> c_int {
+    if fi.is_null() {
+        return negate_errno(EINVAL);
+    }
+
     let mut open_fi = OpenFileInfo::from_file_info(FileInfo::from_raw(fi));
     match build_path(p) {
         Ok(path) => match get_mut_fs().open_dir(path, &mut open_fi) {
@@ -976,6 +984,95 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_fsync_data() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        // Invalid fi
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(
+            unsafe { fsync(ptr, 1, std::ptr::null_mut()) },
+            negate_errno(EINVAL)
+        );
+
+        // Wrong path
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe { fsync(ptr, 1, fi.as_mut_ptr()) },
+            negate_errno(ENOENT)
+        );
+
+        // OK
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        assert_eq!(unsafe { fsync(ptr, 1, fi.as_mut_ptr()) }, 0);
+    }
+
+    #[test]
+    fn test_fsync_all() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        // Invalid fi
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(
+            unsafe { fsync(ptr, 0, std::ptr::null_mut()) },
+            negate_errno(EINVAL)
+        );
+
+        // Wrong path
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe { fsync(ptr, 0, fi.as_mut_ptr()) },
+            negate_errno(ENOENT)
+        );
+
+        // OK
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        assert_eq!(unsafe { fsync(ptr, 0, fi.as_mut_ptr()) }, 0);
+    }
+
+    #[test]
+    fn test_opendir() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        // Invalid fi
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(
+            unsafe { opendir(ptr, std::ptr::null_mut()) },
+            negate_errno(EINVAL)
+        );
+
+        // Wrong path
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe { opendir(ptr, fi.as_mut_ptr()) },
+            negate_errno(ENOENT)
+        );
+
+        // OK
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        unsafe {
+            assert_eq!(opendir(ptr, fi.as_mut_ptr()), 0);
+
+            let fi = fi.assume_init();
+            assert_eq!(fi.direct_io(), 1);
+        }
+    }
+
     #[allow(unused_must_use)]
     unsafe fn setup_test_fs(fs: &'static mut dyn Filesystem) {
         setup_fs(fs);
@@ -1151,6 +1248,31 @@ mod tests {
         fn release(&mut self, path: &Path, file_info: &mut ReleaseFileInfo) -> Result<()> {
             if path.ends_with("foo.txt") {
                 file_info.set_release_flock(true);
+                Ok(())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn sync_data(&mut self, path: &Path, _file_info: FileInfo) -> Result<()> {
+            if path.ends_with("foo.txt") {
+                Ok(())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn sync_all(&mut self, path: &Path, _file_info: FileInfo) -> Result<()> {
+            if path.ends_with("foo.txt") {
+                Ok(())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn open_dir(&mut self, path: &Path, file_info: &mut OpenFileInfo) -> Result<()> {
+            if path.ends_with("foo.txt") {
+                file_info.set_direct_io(true);
                 Ok(())
             } else {
                 Err(ENOENT)
