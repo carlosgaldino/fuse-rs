@@ -522,7 +522,6 @@ pub trait Filesystem {
         &mut self,
         _path: &Path,
         _buf: &[u8],
-        _len: usize,
         _offset: u64,
         _file_info: &mut WriteFileInfo,
     ) -> Result<usize> {

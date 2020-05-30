@@ -221,19 +221,24 @@ unsafe extern "C" fn read(
 unsafe extern "C" fn write(
     p: *const c_char,
     buffer: *const c_char,
-    len: usize,
+    _len: usize,
     offset: off_t,
     fi: *mut fuse::fuse_file_info,
 ) -> c_int {
+    if buffer.is_null() {
+        return negate_errno(EINVAL);
+    }
+
     let buf = CStr::from_ptr(buffer);
     let mut write_fi = WriteFileInfo::from_file_info(FileInfo::from_raw(fi));
     match build_path(p) {
-        Ok(path) => {
-            match get_mut_fs().write(path, buf.to_bytes(), len, offset as _, &mut write_fi) {
-                Ok(_len) => write_fi.file_info().fill(fi),
-                Err(err) => negate_errno(err),
+        Ok(path) => match get_mut_fs().write(path, buf.to_bytes(), offset as _, &mut write_fi) {
+            Ok(len) => {
+                write_fi.file_info().fill(fi);
+                len as _
             }
-        }
+            Err(err) => negate_errno(err),
+        },
         Err(err) => err,
     }
 }
@@ -826,15 +831,6 @@ mod tests {
             negate_errno(ENOENT)
         );
 
-        // Wrong path
-        let p = CString::new(BAR_PATH).unwrap();
-        let ptr = p.as_ptr();
-        let mut buf = mem::MaybeUninit::uninit();
-        assert_eq!(
-            unsafe { read(ptr, buf.as_mut_ptr(), len, offset, fi.as_mut_ptr()) },
-            negate_errno(ENOENT)
-        );
-
         // Truncate if fs wrote more than specified len in the buffer.
         let p = CString::new(FOO_PATH).unwrap();
         let ptr = p.as_ptr();
@@ -862,6 +858,46 @@ mod tests {
 
             let got = CString::from_raw(buf);
             assert_eq!(&got.to_bytes_with_nul()[..ret as usize], b"Hello World!");
+        }
+    }
+
+    #[test]
+    fn test_write() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        let len = 12;
+        let offset = 0;
+
+        // Invalid buffer: null
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe { write(ptr, std::ptr::null_mut(), len, offset, fi.as_mut_ptr()) },
+            negate_errno(EINVAL)
+        );
+
+        // Wrong path
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut buf = mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe { write(ptr, buf.as_mut_ptr(), len, offset, fi.as_mut_ptr()) },
+            negate_errno(ENOENT)
+        );
+
+        // Valid write.
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let buf = CString::new("Hello World!").unwrap();
+        unsafe {
+            assert_eq!(
+                write(ptr, buf.into_raw(), len, offset, fi.as_mut_ptr()),
+                len as _
+            );
+
+            let fi = fi.assume_init();
+            assert_eq!(fi.writepage, 1);
         }
     }
 
@@ -983,6 +1019,26 @@ mod tests {
                 (&String::from("Hello World!").into_bytes()[..])
                     .read(buf)
                     .map_err(|_| EFAULT)
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn write(
+            &mut self,
+            path: &Path,
+            buf: &[u8],
+            _offset: u64,
+            file_info: &mut WriteFileInfo,
+        ) -> Result<usize> {
+            if path.ends_with("foo.txt") {
+                if buf.len() == 12 {
+                    // "Hello World!" len
+                    file_info.set_writepage(true);
+                    Ok(buf.len())
+                } else {
+                    Err(EFAULT)
+                }
             } else {
                 Err(ENOENT)
             }
