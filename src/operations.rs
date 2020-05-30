@@ -1218,19 +1218,13 @@ mod tests {
 
         fn statfs(&self, path: &Path) -> Result<libc::statvfs> {
             if path.ends_with("foo.txt") {
-                Ok(libc::statvfs {
-                    f_bsize: 512,
-                    f_frsize: 0,
-                    f_blocks: 0,
-                    f_bfree: 0,
-                    f_bavail: 0,
-                    f_files: 0,
-                    f_ffree: 0,
-                    f_favail: 0,
-                    f_fsid: 0,
-                    f_flag: 0,
-                    f_namemax: 0,
-                })
+                let mut stats = mem::MaybeUninit::<libc::statvfs>::uninit();
+                unsafe {
+                    (*stats.as_mut_ptr()).f_bsize = 512;
+                }
+
+                let stats = unsafe { stats.assume_init() };
+                Ok(stats)
             } else {
                 Err(ENOENT)
             }
