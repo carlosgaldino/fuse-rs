@@ -277,7 +277,7 @@ pub struct FileInfo {
 }
 
 impl FileInfo {
-    pub fn get_handle(&self) -> Option<u64> {
+    pub fn handle(&self) -> Option<u64> {
         self.handle
     }
 
@@ -327,7 +327,7 @@ impl OpenFileInfo {
         &self.0
     }
 
-    pub fn get_flags(&self) -> Option<OFlag> {
+    pub fn flags(&self) -> Option<OFlag> {
         self.0.flags
     }
 
@@ -369,8 +369,8 @@ impl WriteFileInfo {
         self
     }
 
-    pub fn get_handle(&self) -> Option<u64> {
-        self.0.get_handle()
+    pub fn handle(&self) -> Option<u64> {
+        self.0.handle()
     }
 }
 
@@ -386,8 +386,8 @@ impl FlushFileInfo {
         &self.0
     }
 
-    pub fn get_handle(&self) -> Option<u64> {
-        self.0.get_handle()
+    pub fn handle(&self) -> Option<u64> {
+        self.0.handle()
     }
 
     pub fn set_flush(&mut self, flush: bool) -> &mut Self {
@@ -395,7 +395,7 @@ impl FlushFileInfo {
         self
     }
 
-    pub fn get_lock_owner_id(&self) -> Option<u64> {
+    pub fn lock_owner_id(&self) -> Option<u64> {
         self.0.lock_owner_id
     }
 }
@@ -404,8 +404,8 @@ impl FlushFileInfo {
 pub struct LockFileInfo(FileInfo);
 
 impl LockFileInfo {
-    pub fn get_handle(&self) -> Option<u64> {
-        self.0.get_handle()
+    pub fn handle(&self) -> Option<u64> {
+        self.0.handle()
     }
 
     pub fn set_lock_owner_id(&mut self, id: u64) -> &mut Self {
@@ -413,7 +413,7 @@ impl LockFileInfo {
         self
     }
 
-    pub fn get_lock_owner_id(&self) -> Option<u64> {
+    pub fn lock_owner_id(&self) -> Option<u64> {
         self.0.lock_owner_id
     }
 }
@@ -430,11 +430,11 @@ impl ReleaseFileInfo {
         &self.0
     }
 
-    pub fn get_handle(&self) -> Option<u64> {
-        self.0.get_handle()
+    pub fn handle(&self) -> Option<u64> {
+        self.0.handle()
     }
 
-    pub fn get_flags(&self) -> Option<OFlag> {
+    pub fn flags(&self) -> Option<OFlag> {
         self.0.flags
     }
 

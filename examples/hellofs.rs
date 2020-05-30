@@ -55,7 +55,7 @@ impl Filesystem for HelloFS {
             return Err(Errno::ENOENT);
         }
 
-        if (file_info.get_flags().unwrap_or(OFlag::empty()) & OFlag::O_ACCMODE) != OFlag::O_RDONLY {
+        if (file_info.flags().unwrap_or(OFlag::empty()) & OFlag::O_ACCMODE) != OFlag::O_RDONLY {
             return Err(Errno::EACCES);
         }
 
