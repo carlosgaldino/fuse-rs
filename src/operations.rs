@@ -203,15 +203,13 @@ unsafe extern "C" fn read(
     }
 
     let mut buf = Vec::with_capacity(len);
+    buf.set_len(len);
     match build_path(p) {
         Ok(path) => match get_mut_fs().read(path, &mut buf, offset as _, FileInfo::from_raw(fi)) {
             Ok(length) => {
                 let len = len.min(length);
-                std::ptr::copy_nonoverlapping(
-                    CString::from_vec_unchecked(buf).as_ptr(),
-                    buffer,
-                    len,
-                );
+                buf.split_off(len).clear();
+                std::ptr::copy_nonoverlapping(buf.as_ptr() as *const _, buffer, len);
                 len as _
             }
             Err(err) => negate_errno(err),
@@ -566,8 +564,8 @@ impl DerefMut for FilesystemImpl {
 mod tests {
     use super::*;
     use crate::{filesystem::FileStat, Result};
-    use nix::errno::Errno::ENOENT;
-    use std::io::prelude::Write;
+    use nix::errno::Errno::{EFAULT, ENOENT};
+    use std::io::Read;
     use std::{ffi::OsStr, mem};
 
     static mut DUMMY_FS: DummyFS = DummyFS {};
@@ -848,7 +846,7 @@ mod tests {
             assert_eq!(read(ptr, buf, len, offset, fi.as_mut_ptr()), len as _);
 
             let got = CString::from_raw(buf);
-            assert_eq!(got.to_bytes_with_nul(), b"Hello Wo\0");
+            assert_eq!(got.to_bytes(), b"Hello Wo");
         }
 
         // Returns actual bytes read if fs read less than specified len. EOF case.
@@ -858,11 +856,12 @@ mod tests {
         unsafe {
             vec.set_len(len);
             let buf = CString::from_vec_unchecked(vec).into_raw();
+            let ret = 12;
 
-            assert_eq!(read(ptr, buf, 2 * len, offset, fi.as_mut_ptr()), 12);
+            assert_eq!(read(ptr, buf, 2 * len, offset, fi.as_mut_ptr()), ret);
 
             let got = CString::from_raw(buf);
-            assert_eq!(got.to_bytes_with_nul(), b"Hello World!\0");
+            assert_eq!(&got.to_bytes_with_nul()[..ret as usize], b"Hello World!");
         }
     }
 
@@ -976,12 +975,14 @@ mod tests {
         fn read(
             &mut self,
             path: &Path,
-            buf: &mut Vec<u8>,
+            buf: &mut [u8],
             _offset: u64,
             _file_info: FileInfo,
         ) -> Result<usize> {
             if path.ends_with("foo.txt") {
-                buf.write(b"Hello World!").map_err(|_| Errno::EFAULT)
+                (&String::from("Hello World!").into_bytes()[..])
+                    .read(buf)
+                    .map_err(|_| EFAULT)
             } else {
                 Err(ENOENT)
             }

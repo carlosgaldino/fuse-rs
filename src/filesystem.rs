@@ -510,7 +510,7 @@ pub trait Filesystem {
     fn read(
         &mut self,
         _path: &Path,
-        _buf: &mut Vec<u8>,
+        _buf: &mut [u8],
         _offset: u64,
         _file_info: FileInfo,
     ) -> Result<usize> {

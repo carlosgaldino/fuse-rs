@@ -6,7 +6,7 @@ use fuse_rs::{
     Filesystem,
 };
 use nix::{errno::Errno, fcntl::OFlag, sys::stat::SFlag};
-use std::{ffi::OsString, io::prelude::*, path::Path};
+use std::{ffi::OsString, io::Read, path::Path};
 
 static HELLO_WORLD: &str = "Hello World!\n";
 
@@ -65,7 +65,7 @@ impl Filesystem for HelloFS {
     fn read(
         &mut self,
         path: &Path,
-        buf: &mut Vec<u8>,
+        buf: &mut [u8],
         offset: u64,
         _file_info: FileInfo,
     ) -> fuse_rs::Result<usize> {
@@ -74,7 +74,7 @@ impl Filesystem for HelloFS {
         }
 
         let size = HELLO_WORLD.len() as u64;
-        let mut cap = buf.capacity() as u64;
+        let mut cap = buf.len() as u64;
         if offset > size as _ {
             return Ok(0);
         }
@@ -83,7 +83,8 @@ impl Filesystem for HelloFS {
             cap = size - offset;
         }
 
-        buf.write(&HELLO_WORLD.as_bytes()[..cap as usize])
+        (&HELLO_WORLD.as_bytes()[offset as usize..cap as usize])
+            .read(buf)
             .map_err(|e| Errno::from_i32(e.raw_os_error().expect("read error")))
     }
 }
