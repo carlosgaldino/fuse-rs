@@ -97,32 +97,7 @@ impl FileStat {
     pub(crate) fn fill(&self, cstat: *mut libc::stat) -> c_int {
         assert!(!cstat.is_null());
         unsafe {
-            (*cstat).st_dev = self.st_dev;
-            (*cstat).st_mode = self.st_mode;
-            (*cstat).st_nlink = self.st_nlink;
-            (*cstat).st_ino = self.st_ino;
-            (*cstat).st_uid = self.st_uid;
-            (*cstat).st_gid = self.st_gid;
-            (*cstat).st_rdev = self.st_rdev;
-            (*cstat).st_atime = self.st_atime;
-            (*cstat).st_atime_nsec = self.st_atime_nsec;
-            (*cstat).st_mtime = self.st_mtime;
-            (*cstat).st_mtime_nsec = self.st_mtime_nsec;
-            (*cstat).st_ctime = self.st_ctime;
-            (*cstat).st_ctime_nsec = self.st_ctime_nsec;
-            (*cstat).st_size = self.st_size;
-            (*cstat).st_blocks = self.st_blocks;
-            (*cstat).st_blksize = self.st_blksize;
-            cfg_if::cfg_if! {
-                if #[cfg(target_os = "macos")]  {
-                    (*cstat).st_birthtime = self.st_birthtime;
-                    (*cstat).st_birthtime_nsec = self.st_birthtime_nsec;
-                    (*cstat).st_flags = self.st_flags;
-                    (*cstat).st_gen = self.st_gen;
-                    (*cstat).st_lspare = self.st_lspare;
-                    (*cstat).st_qspare = self.st_qspare;
-                }
-            }
+            let _ = std::ptr::replace(cstat, self.0);
         }
         0
     }
