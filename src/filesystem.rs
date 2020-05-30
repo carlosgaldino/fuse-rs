@@ -5,7 +5,7 @@ use libc::{c_int, flock};
 use nix::{
     errno::Errno::ENOSYS,
     fcntl::{FcntlArg, OFlag},
-    sys::{stat::Mode, statvfs::Statvfs, time::TimeSpec},
+    sys::{stat::Mode, time::TimeSpec},
     unistd::{AccessFlags, Gid, Uid},
 };
 use std::{
@@ -529,7 +529,8 @@ pub trait Filesystem {
     }
 
     // Get filesystem statistics.
-    fn statfs(&self, _path: &Path) -> Result<Statvfs> {
+    fn statfs(&self, _path: &Path) -> Result<libc::statvfs> {
+        // TODO: constructor using nix::sys::Statvfs
         Err(ENOSYS)
     }
 

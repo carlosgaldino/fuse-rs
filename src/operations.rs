@@ -10,7 +10,7 @@ use ffi::fuse;
 use libc::{c_char, c_int, gid_t, mode_t, off_t, stat, uid_t};
 use nix::{
     errno::Errno::{self, EINVAL},
-    sys::{stat::Mode, statvfs::Statvfs},
+    sys::stat::Mode,
     unistd::{AccessFlags, Gid, Uid},
 };
 use once_cell::sync::OnceCell;
@@ -244,9 +244,16 @@ unsafe extern "C" fn write(
 }
 
 unsafe extern "C" fn statfs(p: *const c_char, stbuf: *mut libc::statvfs) -> c_int {
+    if stbuf.is_null() {
+        return negate_errno(EINVAL);
+    }
+
     match build_path(p) {
         Ok(path) => match get_fs().statfs(path) {
-            Ok(stats) => fill_statvfs(stats, stbuf),
+            Ok(stats) => {
+                let _ = std::ptr::replace(stbuf, stats);
+                0
+            }
             Err(err) => negate_errno(err),
         },
         Err(err) => err,
@@ -254,6 +261,10 @@ unsafe extern "C" fn statfs(p: *const c_char, stbuf: *mut libc::statvfs) -> c_in
 }
 
 unsafe extern "C" fn flush(p: *const c_char, fi: *mut fuse::fuse_file_info) -> c_int {
+    if fi.is_null() {
+        return negate_errno(EINVAL);
+    }
+
     let mut flush_fi = FlushFileInfo::from_file_info(FileInfo::from_raw(fi));
     match build_path(p) {
         Ok(path) => match get_mut_fs().flush(path, &mut flush_fi) {
@@ -265,14 +276,15 @@ unsafe extern "C" fn flush(p: *const c_char, fi: *mut fuse::fuse_file_info) -> c
 }
 
 unsafe extern "C" fn release(p: *const c_char, fi: *mut fuse::fuse_file_info) -> c_int {
+    if fi.is_null() {
+        return negate_errno(EINVAL);
+    }
+
     let mut release_fi = ReleaseFileInfo::from_file_info(FileInfo::from_raw(fi));
     match build_path(p) {
-        Ok(path) => match unit_op!(get_mut_fs().release(path, &mut release_fi)) {
-            0 => {
-                release_fi.file_info().fill(fi);
-                0
-            }
-            err => err,
+        Ok(path) => match get_mut_fs().release(path, &mut release_fi) {
+            Ok(_) => release_fi.file_info().fill(fi),
+            Err(err) => negate_errno(err),
         },
         Err(err) => err,
     }
@@ -427,24 +439,6 @@ unsafe extern "C" fn fgetattr(
         },
         Err(err) => err,
     }
-}
-
-fn fill_statvfs(stvfs: Statvfs, stbuf: *mut libc::statvfs) -> c_int {
-    assert!(!stbuf.is_null());
-    unsafe {
-        (*stbuf).f_bsize = stvfs.block_size();
-        (*stbuf).f_frsize = stvfs.fragment_size();
-        (*stbuf).f_blocks = stvfs.blocks();
-        (*stbuf).f_bfree = stvfs.blocks_free();
-        (*stbuf).f_bavail = stvfs.blocks_available();
-        (*stbuf).f_files = stvfs.files();
-        (*stbuf).f_ffree = stvfs.files_free();
-        (*stbuf).f_favail = stvfs.files_available();
-        (*stbuf).f_fsid = stvfs.filesystem_id();
-        (*stbuf).f_flag = stvfs.flags().bits();
-        (*stbuf).f_namemax = stvfs.name_max();
-    }
-    0
 }
 
 unsafe fn build_path<'a>(p: *const c_char) -> Result<&'a Path, c_int> {
@@ -901,6 +895,87 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_statfs() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        // Invalid stbuf
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(
+            unsafe { statfs(ptr, std::ptr::null_mut()) },
+            negate_errno(EINVAL)
+        );
+
+        // Wrong path
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut stbuf = mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe { statfs(ptr, stbuf.as_mut_ptr()) },
+            negate_errno(ENOENT)
+        );
+
+        // OK
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut stbuf = mem::MaybeUninit::uninit();
+        unsafe {
+            assert_eq!(statfs(ptr, stbuf.as_mut_ptr()), 0);
+
+            let stbuf = stbuf.assume_init();
+            assert_eq!(stbuf.f_bsize, 512);
+        }
+    }
+
+    #[test]
+    fn test_flush() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        // Invalid stbuf
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(
+            unsafe { flush(ptr, std::ptr::null_mut()) },
+            negate_errno(EINVAL)
+        );
+
+        // OK
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        unsafe {
+            assert_eq!(flush(ptr, fi.as_mut_ptr()), 0);
+            let fi = fi.assume_init();
+
+            assert_eq!(fi.flush(), 1);
+        }
+    }
+
+    #[test]
+    fn test_release() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        // Invalid stbuf
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(
+            unsafe { release(ptr, std::ptr::null_mut()) },
+            negate_errno(EINVAL)
+        );
+
+        // OK
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        unsafe {
+            assert_eq!(release(ptr, fi.as_mut_ptr()), 0);
+            let fi = fi.assume_init();
+
+            assert_eq!(fi.flock_release(), 1);
+        }
+    }
+
     #[allow(unused_must_use)]
     unsafe fn setup_test_fs(fs: &'static mut dyn Filesystem) {
         setup_fs(fs);
@@ -1039,6 +1114,44 @@ mod tests {
                 } else {
                     Err(EFAULT)
                 }
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn statfs(&self, path: &Path) -> Result<libc::statvfs> {
+            if path.ends_with("foo.txt") {
+                Ok(libc::statvfs {
+                    f_bsize: 512,
+                    f_frsize: 0,
+                    f_blocks: 0,
+                    f_bfree: 0,
+                    f_bavail: 0,
+                    f_files: 0,
+                    f_ffree: 0,
+                    f_favail: 0,
+                    f_fsid: 0,
+                    f_flag: 0,
+                    f_namemax: 0,
+                })
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn flush(&mut self, path: &Path, file_info: &mut FlushFileInfo) -> Result<()> {
+            if path.ends_with("foo.txt") {
+                file_info.set_flush(true);
+                Ok(())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn release(&mut self, path: &Path, file_info: &mut ReleaseFileInfo) -> Result<()> {
+            if path.ends_with("foo.txt") {
+                file_info.set_release_flock(true);
+                Ok(())
             } else {
                 Err(ENOENT)
             }
