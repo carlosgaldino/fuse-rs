@@ -406,9 +406,8 @@ unsafe extern "C" fn init(conn: *mut fuse::fuse_conn_info) -> *mut c_void {
     }
 
     let mut conn_info = ConnectionInfo::from_raw(conn);
-    match get_mut_fs().init(&mut conn_info) {
-        Ok(_) => conn_info.fill(conn),
-        Err(_) => {}
+    if get_mut_fs().init(&mut conn_info).is_ok() {
+        conn_info.fill(conn)
     }
 
     null_ptr
