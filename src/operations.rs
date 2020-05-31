@@ -368,6 +368,10 @@ unsafe extern "C" fn fsyncdir(
     data_sync: c_int,
     fi: *mut fuse::fuse_file_info,
 ) -> c_int {
+    if fi.is_null() {
+        return negate_errno(EINVAL);
+    }
+
     match build_path(p) {
         Ok(path) => {
             if data_sync == 1 {
@@ -381,11 +385,16 @@ unsafe extern "C" fn fsyncdir(
 }
 
 unsafe extern "C" fn releasedir(p: *const c_char, fi: *mut fuse::fuse_file_info) -> c_int {
+    if fi.is_null() {
+        return negate_errno(EINVAL);
+    }
+
+    let mut release_fi = ReleaseFileInfo::from_file_info(FileInfo::from_raw(fi));
     match build_path(p) {
-        Ok(path) => unit_op!(get_mut_fs().release_dir(
-            path,
-            ReleaseFileInfo::from_file_info(FileInfo::from_raw(fi))
-        )),
+        Ok(path) => match get_mut_fs().release_dir(path, &mut release_fi) {
+            Ok(_) => release_fi.file_info().fill(fi),
+            Err(err) => negate_errno(err),
+        },
         Err(err) => err,
     }
 }
@@ -1133,6 +1142,86 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_releasedir() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        // Invalid stbuf
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(
+            unsafe { releasedir(ptr, std::ptr::null_mut()) },
+            negate_errno(EINVAL)
+        );
+
+        // OK
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        unsafe {
+            assert_eq!(releasedir(ptr, fi.as_mut_ptr()), 0);
+            let fi = fi.assume_init();
+
+            assert_eq!(fi.flock_release(), 1);
+        }
+    }
+
+    #[test]
+    fn test_fsyncdir_data() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        // Invalid fi
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(
+            unsafe { fsyncdir(ptr, 1, std::ptr::null_mut()) },
+            negate_errno(EINVAL)
+        );
+
+        // Wrong path
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe { fsyncdir(ptr, 1, fi.as_mut_ptr()) },
+            negate_errno(ENOENT)
+        );
+
+        // OK
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        assert_eq!(unsafe { fsyncdir(ptr, 1, fi.as_mut_ptr()) }, 0);
+    }
+
+    #[test]
+    fn test_fsyncdir_all() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        // Invalid fi
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(
+            unsafe { fsyncdir(ptr, 0, std::ptr::null_mut()) },
+            negate_errno(EINVAL)
+        );
+
+        // Wrong path
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe { fsyncdir(ptr, 0, fi.as_mut_ptr()) },
+            negate_errno(ENOENT)
+        );
+
+        // OK
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        assert_eq!(unsafe { fsyncdir(ptr, 0, fi.as_mut_ptr()) }, 0);
+    }
+
     #[allow(unused_must_use)]
     unsafe fn setup_test_fs(fs: &'static mut dyn Filesystem) {
         setup_fs(fs);
@@ -1365,6 +1454,31 @@ mod tests {
                         offset: Some(10),
                     })
                     .collect())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn release_dir(&mut self, path: &Path, file_info: &mut ReleaseFileInfo) -> Result<()> {
+            if path.ends_with("foo.txt") {
+                file_info.set_release_flock(true);
+                Ok(())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn sync_dir_data(&mut self, path: &Path, _file_info: FileInfo) -> Result<()> {
+            if path.ends_with("foo.txt") {
+                Ok(())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn sync_dir_all(&mut self, path: &Path, _file_info: FileInfo) -> Result<()> {
+            if path.ends_with("foo.txt") {
+                Ok(())
             } else {
                 Err(ENOENT)
             }

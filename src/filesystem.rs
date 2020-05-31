@@ -608,7 +608,7 @@ pub trait Filesystem {
     }
 
     // Release directory.
-    fn release_dir(&mut self, _path: &Path, _file_info: ReleaseFileInfo) -> Result<()> {
+    fn release_dir(&mut self, _path: &Path, _file_info: &mut ReleaseFileInfo) -> Result<()> {
         Err(ENOSYS)
     }
 
