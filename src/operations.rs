@@ -434,6 +434,10 @@ unsafe extern "C" fn create(
     mode: mode_t,
     fi: *mut fuse::fuse_file_info,
 ) -> c_int {
+    if fi.is_null() {
+        return negate_errno(EINVAL);
+    }
+
     let mut open_fi = OpenFileInfo::from_file_info(FileInfo::from_raw(fi));
     match build_path(p) {
         Ok(path) => {
@@ -451,6 +455,10 @@ unsafe extern "C" fn ftruncate(
     len: off_t,
     fi: *mut fuse::fuse_file_info,
 ) -> c_int {
+    if fi.is_null() {
+        return negate_errno(EINVAL);
+    }
+
     match build_path(p) {
         Ok(path) => unit_op!(get_mut_fs().ftruncate(path, len as _, FileInfo::from_raw(fi))),
         Err(err) => err,
@@ -462,6 +470,10 @@ unsafe extern "C" fn fgetattr(
     stat: *mut stat,
     fi: *mut fuse::fuse_file_info,
 ) -> c_int {
+    if fi.is_null() || stat.is_null() {
+        return negate_errno(EINVAL);
+    }
+
     match build_path(p) {
         Ok(path) => match get_fs().fmetadata(path, FileInfo::from_raw(fi)) {
             Ok(file_stat) => file_stat.fill(stat),
@@ -599,6 +611,7 @@ mod tests {
     use nix::errno::Errno::{EFAULT, ENOENT};
     use std::io::Read;
     use std::{ffi::OsStr, mem};
+    use Errno::EACCES;
 
     static mut DUMMY_FS: DummyFS = DummyFS {};
     const FOO_PATH: &str = "/path/to/foo.txt";
@@ -1233,6 +1246,8 @@ mod tests {
 
     #[test]
     fn test_init() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
         // Null conn
         unsafe {
             assert_eq!(init(std::ptr::null_mut()), std::ptr::null_mut());
@@ -1252,7 +1267,131 @@ mod tests {
     #[test]
     fn test_destroy() {
         unsafe {
+            setup_test_fs(&mut DUMMY_FS);
             destroy(std::ptr::null_mut());
+        }
+    }
+
+    #[test]
+    fn test_access() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        // Wrong path
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mode = AccessFlags::W_OK.bits();
+        assert_eq!(unsafe { access(ptr, mode) }, negate_errno(ENOENT));
+
+        // OK
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mode = AccessFlags::W_OK.bits();
+        assert_eq!(unsafe { access(ptr, mode) }, 1);
+    }
+
+    #[test]
+    fn test_create() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        // Invalid fi
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mode = Mode::S_IRWXU.bits();
+        assert_eq!(
+            unsafe { create(ptr, mode, std::ptr::null_mut()) },
+            negate_errno(EINVAL)
+        );
+
+        // Wrong path
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe { create(ptr, mode, fi.as_mut_ptr()) },
+            negate_errno(ENOENT)
+        );
+
+        // OK
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        unsafe {
+            assert_eq!(create(ptr, mode, fi.as_mut_ptr()), 0);
+
+            let fi = fi.assume_init();
+            assert_eq!(fi.fh, 123);
+        }
+    }
+
+    #[test]
+    fn test_ftruncate() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        // Invalid fi
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let offset = 64;
+        assert_eq!(
+            unsafe { ftruncate(ptr, offset, std::ptr::null_mut()) },
+            negate_errno(EINVAL)
+        );
+
+        // Wrong path
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe { ftruncate(ptr, offset, fi.as_mut_ptr()) },
+            negate_errno(ENOENT)
+        );
+
+        // OK
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        unsafe {
+            assert_eq!(ftruncate(ptr, offset, fi.as_mut_ptr()), 0);
+        }
+    }
+
+    #[test]
+    fn test_fgetattr() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        // Invalid fi
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut stat = mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe { fgetattr(ptr, stat.as_mut_ptr(), std::ptr::null_mut()) },
+            negate_errno(EINVAL)
+        );
+
+        // Invalid stat
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe { fgetattr(ptr, std::ptr::null_mut(), fi.as_mut_ptr()) },
+            negate_errno(EINVAL)
+        );
+
+        // Wrong path
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        assert_eq!(
+            unsafe { fgetattr(ptr, stat.as_mut_ptr(), fi.as_mut_ptr()) },
+            negate_errno(ENOENT)
+        );
+
+        // OK
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        unsafe {
+            assert_eq!(fgetattr(ptr, stat.as_mut_ptr(), fi.as_mut_ptr()), 0);
+
+            let stat = stat.assume_init();
+            assert_eq!(stat.st_nlink, 3);
         }
     }
 
@@ -1523,6 +1662,50 @@ mod tests {
                 .enable_async_read()
                 .set_capability_flags(CapabilityFlags::FUSE_CAP_BIG_WRITES);
             Ok(())
+        }
+
+        fn check_permissions(&self, path: &Path, permissions: AccessFlags) -> Result<bool> {
+            if path.ends_with("foo.txt") {
+                Ok(permissions == AccessFlags::W_OK)
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn create(
+            &mut self,
+            path: &Path,
+            permissions: Mode,
+            file_info: &mut OpenFileInfo,
+        ) -> Result<()> {
+            if path.ends_with("foo.txt") {
+                if permissions == Mode::S_IRWXU {
+                    file_info.set_handle(123);
+                    Ok(())
+                } else {
+                    Err(EACCES)
+                }
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn ftruncate(&mut self, path: &Path, _len: u64, _file_info: FileInfo) -> Result<()> {
+            if path.ends_with("foo.txt") {
+                Ok(())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn fmetadata(&self, path: &Path, _file_info: FileInfo) -> Result<FileStat> {
+            if path.ends_with("foo.txt") {
+                let mut fstat = FileStat::new();
+                fstat.st_nlink = 3;
+                Ok(fstat)
+            } else {
+                Err(ENOENT)
+            }
         }
     }
 }
