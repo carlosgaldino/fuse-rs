@@ -400,9 +400,18 @@ unsafe extern "C" fn releasedir(p: *const c_char, fi: *mut fuse::fuse_file_info)
 }
 
 unsafe extern "C" fn init(conn: *mut fuse::fuse_conn_info) -> *mut c_void {
-    assert!(!conn.is_null());
-    unit_op!(get_mut_fs().init(&mut ConnectionInfo::from_raw(conn)));
-    std::ptr::null_mut()
+    let null_ptr = std::ptr::null_mut();
+    if conn.is_null() {
+        return null_ptr;
+    }
+
+    let mut conn_info = ConnectionInfo::from_raw(conn);
+    match get_mut_fs().init(&mut conn_info) {
+        Ok(_) => conn_info.fill(conn),
+        Err(_) => {}
+    }
+
+    null_ptr
 }
 
 unsafe extern "C" fn destroy(_private_data: *mut c_void) {
@@ -584,7 +593,7 @@ impl DerefMut for FilesystemImpl {
 mod tests {
     use super::*;
     use crate::{
-        filesystem::{DirEntry, FileStat},
+        filesystem::{CapabilityFlags, DirEntry, FileStat},
         Result,
     };
     use nix::errno::Errno::{EFAULT, ENOENT};
@@ -1222,6 +1231,31 @@ mod tests {
         assert_eq!(unsafe { fsyncdir(ptr, 0, fi.as_mut_ptr()) }, 0);
     }
 
+    #[test]
+    fn test_init() {
+        // Null conn
+        unsafe {
+            assert_eq!(init(std::ptr::null_mut()), std::ptr::null_mut());
+        }
+
+        // Valid connection
+        let mut conn = mem::MaybeUninit::uninit();
+        unsafe {
+            assert_eq!(init(conn.as_mut_ptr()), std::ptr::null_mut());
+
+            let conn = conn.assume_init();
+            assert_eq!(conn.async_read, 1);
+            assert_eq!(conn.want, CapabilityFlags::FUSE_CAP_BIG_WRITES.bits());
+        }
+    }
+
+    #[test]
+    fn test_destroy() {
+        unsafe {
+            destroy(std::ptr::null_mut());
+        }
+    }
+
     #[allow(unused_must_use)]
     unsafe fn setup_test_fs(fs: &'static mut dyn Filesystem) {
         setup_fs(fs);
@@ -1482,6 +1516,13 @@ mod tests {
             } else {
                 Err(ENOENT)
             }
+        }
+
+        fn init(&mut self, connection_info: &mut ConnectionInfo) -> Result<()> {
+            connection_info
+                .enable_async_read()
+                .set_capability_flags(CapabilityFlags::FUSE_CAP_BIG_WRITES);
+            Ok(())
         }
     }
 }

@@ -159,7 +159,7 @@ pub struct ConnectionInfo {
 }
 
 impl ConnectionInfo {
-    pub(crate) fn from_raw(c: *mut fuse::fuse_conn_info) -> Self {
+    pub(crate) fn from_raw(c: *const fuse::fuse_conn_info) -> Self {
         unsafe {
             Self {
                 proto_minor: (*c).proto_minor,
@@ -174,6 +174,22 @@ impl ConnectionInfo {
             }
         }
     }
+
+    pub(crate) fn fill(&self, conn: *mut fuse::fuse_conn_info) {
+        assert!(!conn.is_null());
+        unsafe {
+            (*conn).proto_minor = self.proto_minor;
+            (*conn).proto_major = self.proto_major;
+            (*conn).async_read = self.async_read as _;
+            (*conn).max_write = self.max_write;
+            (*conn).max_readahead = self.max_readahead;
+            (*conn).max_background = self.max_background;
+            (*conn).capable = self.kernel_capability_flags.bits();
+            (*conn).want = self.fs_capability_flags.bits();
+            (*conn).congestion_threshold = self.congestion_threshold;
+        }
+    }
+
     pub fn proto_major(&self) -> u32 {
         self.proto_major
     }
@@ -182,7 +198,7 @@ impl ConnectionInfo {
         self.proto_minor
     }
 
-    pub fn support_async_read(&mut self) -> &mut Self {
+    pub fn enable_async_read(&mut self) -> &mut Self {
         self.async_read = true;
         self
     }
