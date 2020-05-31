@@ -86,7 +86,8 @@ bitflags! {
     }
 }
 
-#[derive(Debug)]
+#[repr(transparent)]
+#[derive(Debug, Clone)]
 pub struct FileStat(libc::stat);
 
 impl FileStat {
@@ -102,8 +103,8 @@ impl FileStat {
         0
     }
 
-    pub(crate) fn as_raw(&mut self) -> *mut libc::stat {
-        &mut self.0
+    pub(crate) fn as_raw(&self) -> *const libc::stat {
+        &self.0
     }
 }
 

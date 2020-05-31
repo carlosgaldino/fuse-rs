@@ -338,7 +338,11 @@ unsafe extern "C" fn readdir(
             Ok(entries) => match filler {
                 Some(f) => {
                     for e in entries {
-                        let stat = e.metadata.map_or(std::ptr::null(), |mut s| s.as_raw());
+                        let stat = if let Some(s) = e.metadata {
+                            s.as_raw()
+                        } else {
+                            std::ptr::null()
+                        };
                         let res = f(
                             buf,
                             CString::from_vec_unchecked(e.name.into_vec()).as_ptr(),
@@ -570,7 +574,10 @@ impl DerefMut for FilesystemImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{filesystem::FileStat, Result};
+    use crate::{
+        filesystem::{DirEntry, FileStat},
+        Result,
+    };
     use nix::errno::Errno::{EFAULT, ENOENT};
     use std::io::Read;
     use std::{ffi::OsStr, mem};
@@ -1073,9 +1080,77 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_readdir() {
+        unsafe { setup_test_fs(&mut DUMMY_FS) };
+
+        let offset = 0;
+
+        // Wrong path
+        let p = CString::new(BAR_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        let mut buf = mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe {
+                readdir(
+                    ptr,
+                    buf.as_mut_ptr(),
+                    Some(fake_fill_dir),
+                    offset,
+                    fi.as_mut_ptr(),
+                )
+            },
+            negate_errno(ENOENT)
+        );
+
+        // Filler function not given
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        let mut buf = mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe { readdir(ptr, buf.as_mut_ptr(), None, offset, fi.as_mut_ptr(),) },
+            0,
+        );
+
+        // OK
+        let p = CString::new(FOO_PATH).unwrap();
+        let ptr = p.as_ptr();
+        let mut fi = mem::MaybeUninit::uninit();
+        let mut buf = mem::MaybeUninit::uninit();
+        assert_eq!(
+            unsafe {
+                readdir(
+                    ptr,
+                    buf.as_mut_ptr(),
+                    Some(fake_fill_dir),
+                    offset,
+                    fi.as_mut_ptr(),
+                )
+            },
+            0,
+        );
+    }
+
     #[allow(unused_must_use)]
     unsafe fn setup_test_fs(fs: &'static mut dyn Filesystem) {
         setup_fs(fs);
+    }
+
+    unsafe extern "C" fn fake_fill_dir(
+        _buf: *mut c_void,
+        name: *const c_char,
+        stbuf: *const stat,
+        offset: off_t,
+    ) -> c_int {
+        let file_name = CStr::from_ptr(name).to_str().unwrap();
+        assert_eq!(file_name, "hello.txt");
+
+        assert_eq!((*stbuf).st_ino, 3);
+        assert_eq!(offset, 10);
+
+        0
     }
 
     struct DummyFS;
@@ -1268,6 +1343,28 @@ mod tests {
             if path.ends_with("foo.txt") {
                 file_info.set_direct_io(true);
                 Ok(())
+            } else {
+                Err(ENOENT)
+            }
+        }
+
+        fn read_dir(
+            &mut self,
+            path: &Path,
+            _offset: u64,
+            _file_info: FileInfo,
+        ) -> Result<Vec<DirEntry>> {
+            if path.ends_with("foo.txt") {
+                let mut file_stat = FileStat::new();
+                file_stat.st_ino = 3;
+                Ok(vec!["hello.txt"]
+                    .into_iter()
+                    .map(|n| DirEntry {
+                        name: OsString::from(n),
+                        metadata: Some(file_stat.clone()),
+                        offset: Some(10),
+                    })
+                    .collect())
             } else {
                 Err(ENOENT)
             }
