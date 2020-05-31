@@ -106,6 +106,7 @@ unsafe extern "C" fn readlink(p: *const c_char, buffer: *mut c_char, len: usize)
 
 unsafe extern "C" fn mkdir(p: *const c_char, mode: mode_t) -> c_int {
     match build_path(p) {
+        // according to fuse.h, it can send S_IFDIR so we don't check the bits here.
         Ok(path) => unit_op!(get_mut_fs().create_dir(path, Mode::from_bits_unchecked(mode))),
         Err(err) => err,
     }
