@@ -2,7 +2,7 @@ extern crate fuse_rs;
 extern crate nix;
 
 use fuse_rs::{
-    filesystem::{DirEntry, FileInfo, FileStat, OpenFileInfo},
+    fs::{DirEntry, FileInfo, FileStat, OpenFileInfo},
     Filesystem,
 };
 use nix::{errno::Errno, fcntl::OFlag, sys::stat::SFlag};

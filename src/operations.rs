@@ -2,7 +2,7 @@ extern crate once_cell;
 
 use libfuse_sys as ffi;
 
-use crate::filesystem::{
+use crate::fs::{
     ConnectionInfo, FileInfo, Filesystem, FlushFileInfo, OpenFileInfo, ReleaseFileInfo,
     WriteFileInfo,
 };
@@ -605,7 +605,7 @@ impl DerefMut for FilesystemImpl {
 mod tests {
     use super::*;
     use crate::{
-        filesystem::{CapabilityFlags, DirEntry, FileStat},
+        fs::{CapabilityFlags, DirEntry, FileStat},
         Result,
     };
     use nix::errno::Errno::{EFAULT, ENOENT};
@@ -696,7 +696,7 @@ mod tests {
 
         let p = CString::new(BAR_PATH).unwrap();
         let ptr = p.as_ptr();
-        let mode: libc::mode_t = libc::S_IFDIR | 0o755;
+        let mode: libc::mode_t = libc::S_IRWXU | 0o755;
         assert_eq!(unsafe { mkdir(ptr, mode) }, negate_errno(ENOENT));
 
         let p = CString::new(FOO_PATH).unwrap();
@@ -781,7 +781,7 @@ mod tests {
 
         let p = CString::new(BAR_PATH).unwrap();
         let ptr = p.as_ptr();
-        let mode: libc::mode_t = libc::S_IFDIR | 0o755;
+        let mode: libc::mode_t = libc::S_IRWXO | 0o755;
         assert_eq!(unsafe { chmod(ptr, mode) }, negate_errno(ENOENT));
 
         let p = CString::new(FOO_PATH).unwrap();
