@@ -100,5 +100,12 @@ fn main() -> Result<(), fuse_rs::Error> {
         OsString::from("ro"),
     ];
     static mut FS: HelloFS = HelloFS {};
-    unsafe { fuse_rs::mount(OsString::from("HelloFS"), "./hello_fs", &mut FS, opts) }
+    unsafe {
+        fuse_rs::mount(
+            std::env::args_os().next().unwrap(),
+            "./hello_fs",
+            &mut FS,
+            opts,
+        )
+    }
 }
