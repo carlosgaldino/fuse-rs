@@ -21,6 +21,7 @@ use std::{
     path::Path,
     sync::{RwLock, RwLockReadGuard},
 };
+use Errno::ENOSYS;
 
 static mut FS: OnceCell<RwLock<FilesystemImpl>> = OnceCell::new();
 
@@ -483,6 +484,15 @@ unsafe extern "C" fn fgetattr(
     }
 }
 
+unsafe extern "C" fn lock(
+    _arg1: *const c_char,
+    _arg2: *mut fuse::fuse_file_info,
+    _cmd: c_int,
+    _arg3: *mut libc::flock,
+) -> c_int {
+    negate_errno(ENOSYS)
+}
+
 unsafe fn build_path<'a>(p: *const c_char) -> Result<&'a Path, c_int> {
     if p.is_null() {
         return Err(negate_errno(EINVAL));
@@ -552,6 +562,8 @@ fn build_operations() -> fuse::fuse_operations {
         ftruncate: Some(ftruncate),
         #[cfg(any(feature = "full", feature = "fgetattr"))]
         fgetattr: Some(fgetattr),
+        #[cfg(any(feature = "full", feature = "lock"))]
+        lock: Some(lock),
         // TODO: lock, utimens, bmap, ext_metadata
         ..Default::default()
     }

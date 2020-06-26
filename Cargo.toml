@@ -48,6 +48,7 @@ access     = []
 create     = []
 ftruncate  = []
 fgetattr   = []
+lock       = []
 
 full = [
   "getattr",
@@ -78,6 +79,7 @@ full = [
   "create",
   "ftruncate",
   "fgetattr",
+  "lock",
 ]
 
 [[example]]
