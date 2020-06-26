@@ -42,6 +42,7 @@ bitflags! {
 }
 
 bitflags! {
+    #[derive(Default)]
     pub struct CapabilityFlags: u32 {
         // Filesystem supports asynchronous read requests.
         const FUSE_CAP_ASYNC_READ = fuse::FUSE_CAP_ASYNC_READ;
@@ -86,8 +87,7 @@ bitflags! {
     }
 }
 
-#[repr(transparent)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FileStat(libc::stat);
 
 impl FileStat {
@@ -135,7 +135,7 @@ pub struct DirEntry {
     pub offset: Option<u64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ConnectionInfo {
     // Major version of the protocol.
     proto_major: u32,
@@ -273,6 +273,11 @@ impl FileInfo {
         self.handle
     }
 
+    pub fn set_handle(&mut self, handle: u64) -> &mut Self {
+        self.handle = Some(handle);
+        self
+    }
+
     pub(crate) fn from_raw(fi: *mut fuse::fuse_file_info) -> Self {
         assert!(!fi.is_null());
         unsafe {
@@ -315,7 +320,7 @@ impl OpenFileInfo {
         Self(fi)
     }
 
-    pub(crate) fn file_info(&self) -> &FileInfo {
+    pub fn file_info(&self) -> &FileInfo {
         &self.0
     }
 
@@ -342,13 +347,17 @@ impl OpenFileInfo {
         self.0.non_seekable = non_seekable;
         self
     }
+
+    pub fn handle(&self) -> Option<u64> {
+        self.0.handle
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct WriteFileInfo(FileInfo);
 
 impl WriteFileInfo {
-    pub(crate) fn from_file_info(fi: FileInfo) -> Self {
+    pub fn from_file_info(fi: FileInfo) -> Self {
         Self(fi)
     }
 
