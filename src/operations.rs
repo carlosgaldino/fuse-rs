@@ -222,7 +222,7 @@ unsafe extern "C" fn read(
 unsafe extern "C" fn write(
     p: *const c_char,
     buffer: *const c_char,
-    _len: usize,
+    len: usize,
     offset: off_t,
     fi: *mut fuse::fuse_file_info,
 ) -> c_int {
@@ -230,10 +230,10 @@ unsafe extern "C" fn write(
         return negate_errno(EINVAL);
     }
 
-    let buf = CStr::from_ptr(buffer);
+    let buf: &[u8] = std::slice::from_raw_parts(buffer as _, len);
     let mut write_fi = WriteFileInfo::from_file_info(FileInfo::from_raw(fi));
     match build_path(p) {
-        Ok(path) => match get_mut_fs().write(path, buf.to_bytes(), offset as _, &mut write_fi) {
+        Ok(path) => match get_mut_fs().write(path, &buf[..len], offset as _, &mut write_fi) {
             Ok(len) => {
                 write_fi.file_info().fill(fi);
                 len as _
