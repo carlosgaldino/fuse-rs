@@ -1,13 +1,13 @@
 [package]
 name        = "fuse-rs"
-version     = "0.0.0"
+version     = "0.0.1"
 authors     = ["Carlos Galdino <carloshsgaldino@gmail.com>"]
 edition     = "2018"
 license     = "Apache-2.0"
 repository  = "https://github.com/carlosgaldino/fuse-rs"
 categories  = ["api-bindings", "filesystem"]
 keywords    = ["fuse", "filesystem", "bindings", "ffi"]
-description = "WIP"
+description = "A wrapper around libfuse-sys for writing file systems using FUSE."
 
 [dependencies]
 libfuse-sys = { version = "0.3.0", default-features = false, features = ["fuse_35", "fuse_highlevel"] }
